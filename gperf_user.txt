@@ -1,0 +1,69 @@
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus*/ 
+#include <stdio.h>
+#include <stdlib.h>
+
+//add -DWITHGPERFTOOLS in gcc flags and -lprofiler to dynamic link in makefile 
+#ifdef WITHGPERFTOOLS
+#include <gperftools/profiler.h>
+#endif
+
+#ifdef WITHGPERFTOOLS
+static void gprof_callback(int signum)
+{
+    if (signum == SIGUSR1)
+    {
+        printf("Catch the signal ProfilerStart\n");
+        ProfilerStart("profilertpp.prof");
+    }
+    else if (signum == SIGUSR2)
+    {
+        printf("Catch the signal ProfilerStop\n");
+        ProfilerStop();
+    }
+}
+
+// use kill -USR1/-USR2 pid to start/stop profile, result in profilerrtpp.prof
+static void setup_signal()
+{
+    struct sigaction profstat;
+    profstat.sa_handler = gprof_callback;
+    profstat.sa_flags = 0;
+    sigemptyset(&profstat.sa_mask);
+    sigaddset(&profstat.sa_mask, SIGUSR1);
+    sigaddset(&profstat.sa_mask, SIGUSR2);
+
+    if (sigaction(SIGUSR1, &profstat,NULL) < 0 )
+    {
+        fprintf(stderr, "Fail to connect signal SIGUSR1 with start profiling");
+    }
+    if ( sigaction(SIGUSR2, &profstat,NULL) < 0 )
+    {
+        fprintf(stderr, "Fail to connect signal SIGUSR2 with stop profiling");
+    }
+}
+#endif
+
+int main( int argc,char* argv[] )
+{
+    if (argc == 2 && (!strcmp(argv[1], "-v") || !strcmp(argv[1], "-V") || !strcmp(argv[1], "--version"))) {
+        OSAL_print_version_info();
+        exit(0);
+    }
+
+	int i;
+	int j = eRTPP1;
+	DIR *pdir = OSAL_NULL;
+	
+#ifdef WITHGPERFTOOLS
+	setup_signal();
+#endif
+	
+	osal_shell_run();
+
+    return 0;
+
+}
+
