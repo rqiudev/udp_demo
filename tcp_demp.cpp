@@ -28,7 +28,7 @@ int tcp_recv(int sock, char* buf, int len)
 		else
 		{
 			OSAL_trace(eRTPC, eError,"The tcp may be closed, sock:%d", sock);
-			return -1;
+			return 0;
 		}
 	}
 
@@ -61,12 +61,105 @@ int tcp_recv(int sock, char* buf, int len)
 			return -1;
 		} else {
 			OSAL_trace(eRTPC, eError,"The tcp may be closed, sock:%d", sock);
-			return -1;
+			return 0;
 		}
 	}
 
 	return nRecvTotalLen;
 }
+
+
+
+int second_tcp_recv(int sock, char* buf, int len)
+{
+	if (sock < 0 || buf == NULL || len <= 0)
+	{
+		OSAL_trace(eRTPP, eError,"Invalid arguments for tcp_recv");
+	}
+
+	int nRecv;
+	while(len > 0)
+	{
+		nRecv = recv(sock, buf, len, 0);
+		if(nRecv > 0)
+		{
+			return nRecv;
+		} else if(nRecv < 0)
+		{
+			if(errno==EAGAIN || errno==EWOULDBLOCK || errno==EINTR)
+			{
+				usleep(10);
+				continue;
+			}
+
+			OSAL_trace(eRTPP, eError,"Failed to recv tcp date, sock:%d, len = %u.", sock, len);
+			return -1;
+		} else
+		{
+			OSAL_trace(eRTPP, eError,"The tcp may be closed, sock:%d", sock);
+			return 0;
+		}
+	}
+
+	return nRecv;
+}
+
+
+void tcp_recv_deal(int fd)
+{
+	int recvLen = MAX_BUF_SIZE - gRtpcInfoSet[idxRtpc].recv_buf_end + gRtpcInfoSet[idxRtpc].recv_buf_begin;
+	if (recvLen <= 0)
+	{
+		OSAL_trace(eRTPP, eError,"socket %d, not enough buffer to recv for rtpc", fd);
+		return;
+	}
+
+	char *recvBuf = gRtpcInfoSet[idxRtpc].tcp_recv_buf + gRtpcInfoSet[idxRtpc].recv_buf_end;
+	int rlen = tcp_recv(fd, recvBuf, recvLen);
+	if (rlen <= 0)
+	{
+		OSAL_trace(eRTPP, eError,"Faild to rtpc_tcp_recv");
+		OSAL_async_select (eRTPP, fd, 0, OSAL_NULL, OSAL_NULL);
+		close(fd);
+		return;
+	}
+
+	gRtpcInfoSet[idxRtpc].recv_buf_end += rlen;
+	char* ip_str = gRtpcInfoSet[idxRtpc].ip_str;
+	
+
+	int handle_len = gRtpcInfoSet[idxRtpc].recv_buf_end - gRtpcInfoSet[idxRtpc].recv_buf_begin;
+	while (handle_len > 0)
+	{
+		char* rbuf = gRtpcInfoSet[idxRtpc].tcp_recv_buf + gRtpcInfoSet[idxRtpc].recv_buf_begin;
+		int msgLen = *rbuf;
+		if (msgLen <= 1)
+		{
+			OSAL_trace(eRTPP, eError,"Invalid msg len %d", msgLen);
+			OSAL_async_select (eRTPP, fd, 0, OSAL_NULL, OSAL_NULL);
+			close(fd);
+			return;
+		}
+
+		if (msgLen > handle_len) break;
+		//处理命令
+		rtpp_handle_command(cf, rbuf+1, msgLen-1, idxRtpc);
+
+		handle_len -= msgLen;
+		if (handle_len == 0)
+		{
+			gRtpcInfoSet[idxRtpc].recv_buf_begin = 0;
+			gRtpcInfoSet[idxRtpc].recv_buf_end = 0;
+		}
+		else
+		{
+			gRtpcInfoSet[idxRtpc].recv_buf_begin += msgLen;
+		}
+	}
+
+	return;
+}
+
 
 //remember to use first byte indicate the data length before send
 int tcp_send(int sock, char* buf, int len)
