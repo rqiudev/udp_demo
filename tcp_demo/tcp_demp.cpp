@@ -664,3 +664,141 @@ static void handle_connection(struct pollfd *connfds,int num)
     }
 }
 
+
+int xxxx_tcp_connect(int index_yyyy, int msec)
+{
+    if (index_yyyy < 0 || index_yyyy >= MAX_yyyy_NUM)
+    {
+        OSAL_trace(exxxx, eError,"Invalid yyyy index\n");
+        return RET_ERR;
+    }
+
+    if (gyyyy[index_yyyy].fdCmdTcp == -1)
+    {
+        OSAL_trace(exxxx, eDebug, "connecting yyyy socket, idx=%d", index_yyyy);
+    }
+    else
+    {
+        OSAL_trace(exxxx, eDebug, "reconnecting yyyy socket, idx=%d", index_yyyy);
+        close(gyyyy[index_yyyy].fdCmdTcp);
+    }
+
+    gyyyy[index_yyyy].fdCmdTcp = socket(AF_INET, SOCK_STREAM, 0);
+    int sockfd = gyyyy[index_yyyy].fdCmdTcp;
+    if (sockfd== -1)
+    {
+        OSAL_trace(exxxx, eError, "can't create yyyy socket, idx=%d", index_yyyy);
+        return RET_ERR;
+    }
+
+    int flags = fcntl(sockfd, F_GETFL);
+    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+    /* 填写sockaddr_in结构*/
+    struct sockaddr_in addr;
+    bzero(&addr,sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port=htons(gyyyy[index_yyyy].port);
+    addr.sin_addr.s_addr = inet_addr(gyyyy[index_yyyy].ip);
+    OSAL_trace (exxxx, eWarn, "Try to connect to yyyy, idx=%d ip=%s, port=%d, fd=%d\n",
+                    index_yyyy, gyyyy[index_yyyy].ip, gyyyy[index_yyyy].port, gyyyy[index_yyyy].fdCmdTcp);
+    int ret;
+    if ((ret = connect(sockfd, (struct sockaddr *)&addr, sizeof(addr))) < 0)
+    {
+        if (errno != EINPROGRESS)
+        {
+            OSAL_trace (exxxx, eError, "Connect failed\n");
+            do_xxxx_connect_failed(index_yyyy);
+            return RET_ERR;
+        }
+    }
+    else if (ret == 0)
+    {
+        do_xxxx_connect_success(index_yyyy);
+    }
+
+//    fd_set rset, wset;
+//    struct timeval tval;
+//    FD_ZERO(&rset);
+//    FD_SET(sockfd, &rset);
+//    wset = rset;
+//    tval.tv_sec = msec/1000;
+//    tval.tv_usec = (msec%1000)*1000;
+//
+//    int selres = select(sockfd + 1, &rset, &wset, NULL, &tval);
+//  switch (selres)
+//  {
+//  case 0:
+//      OSAL_trace (exxxx, eError, "Select timeout\n");
+//      do_xxxx_connect_failed(index_yyyy);
+//      return RET_ERR;
+//  case -1:
+//      OSAL_trace (exxxx, eError, "Select error\n");
+//      do_xxxx_connect_failed(index_yyyy);
+//      return RET_ERR;
+//  default:
+//      if (FD_ISSET(sockfd, &rset) || FD_ISSET(sockfd, &wset))
+//      {
+//          int errinfo, errlen;
+//          if (0 == getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &errinfo, &errlen) && 0 == errinfo)
+//          {
+//              do_xxxx_connect_success(index_yyyy);
+//              return RET_OK;
+//          }
+//      }
+//
+//      OSAL_trace (exxxx, eError, "Select invalid socket\n");
+//      do_xxxx_connect_failed(index_yyyy);
+//      return RET_ERR;
+//  }
+
+    return RET_OK;
+}
+
+void xxxx_deal_yyyy_conn_rsp(void)
+{
+    fd_set wset;
+
+    FD_ZERO(&wset);
+    int maxfd =  -1;
+//  OSAL_trace(exxxx, eWarn,"xxxx_deal_yyyy_conn_rs\n");
+    for(int i=0;i<MAX_yyyy_NUM; ++i)
+    {
+        if(!(gyyyy[i].valid && gyyyy[i].fdCmdTcp > 0 && gyyyy[i].tcpConnected == 0)) continue;
+        gyyyy[i].tcpConnectTimes++;
+        if ((gyyyy[i].tcpConnectTimes > 10))
+        {
+            do_xxxx_connect_failed(i);
+            continue;
+        }
+
+        FD_SET(gyyyy[i].fdCmdTcp, &wset);
+        if (gyyyy[i].fdCmdTcp > maxfd) maxfd = gyyyy[i].fdCmdTcp;
+    }
+
+    if(maxfd < 0) return;
+    struct timeval tval;
+    tval.tv_sec = 0;
+    tval.tv_usec = 0;
+    int selres = select(maxfd + 1, NULL, &wset, NULL, &tval);
+    if (selres <= 0) return;
+
+    for(int i=0;i<MAX_yyyy_NUM; ++i)
+    {
+        if(!(gyyyy[i].valid && gyyyy[i].fdCmdTcp > 0 && gyyyy[i].tcpConnected == 0 && gyyyy[i].tcpConnectTimes <= 10)) continue;
+//      if (FD_ISSET(gyyyy[i].fdCmdTcp, &rset) || FD_ISSET(gyyyy[i].fdCmdTcp, &wset))
+        if (FD_ISSET(gyyyy[i].fdCmdTcp, &wset))
+        {
+            int errinfo, errlen;
+            if (0 == getsockopt(gyyyy[i].fdCmdTcp, SOL_SOCKET, SO_ERROR, &errinfo, &errlen) && 0 == errinfo)
+            {
+                struct sockaddr_in remotPeerAdress;
+                int remotPeerAdressLen = sizeof(remotPeerAdress);
+                if (getpeername(gyyyy[i].fdCmdTcp,  (struct sockaddr *)&remotPeerAdress, &remotPeerAdressLen) == 0)
+                {
+                    do_xxxx_connect_success(i);
+                }
+            }
+        }
+    }
+}
